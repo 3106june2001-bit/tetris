@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>OpenUp</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#f5f0eb;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  min-height:100vh;
+  min-height:100dvh;
+  font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+  touch-action:manipulation;
+  overflow:hidden;
+}
+.game-wrapper {
+  display:flex;
+  gap:20px;
+  align-items:flex-start;
+  padding:10px;
+  max-width:100vw;
+}
+canvas#board {
+  border:2px solid #ccc5bc;
+  background:#ffffff;
+  display:block;
+  border-radius:4px;
+  box-shadow:0 2px 16px rgba(0,0,0,0.08);
+  max-width:calc(100vw - 180px);
+  height:auto;
+  touch-action:none;
+}
+.side-panel {
+  color:#5a2a2a;
+  font-size:13px;
+  min-width:140px;
+  flex-shrink:0;
+}
+.side-panel .title {
+  font-size:18px;
+  font-weight:700;
+  color:#8a1a1a;
+  letter-spacing:4px;
+  text-transform:uppercase;
+  margin-bottom:20px;
+}
+.side-panel .title span { color:#ba4a4a; }
+.side-panel .block { margin-bottom:14px; }
+.side-panel .label {
+  color:#8a4a4a;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:1.2px;
+  margin-bottom:2px;
+}
+.side-panel .value { font-size:22px; font-weight:700; color:#5a1a1a; }
+.side-panel .value.small { font-size:14px; font-weight:500; color:#7a3a3a; }
+.side-panel .value.timer { font-size:26px; color:#8a1a1a; letter-spacing:1px; font-variant-numeric:tabular-nums; }
+button {
+  background:#8a2a2a;
+  border:1px solid #ba4a4a;
+  color:#fff0e8;
+  font-family:inherit;
+  font-size:12px;
+  font-weight:600;
+  padding:8px 18px;
+  cursor:pointer;
+  text-transform:uppercase;
+  letter-spacing:2px;
+  border-radius:4px;
+  transition:background 0.15s;
+  -webkit-tap-highlight-color:transparent;
+}
+button:hover { background:#aa3a3a; }
+#gameover-screen {
+  display:none;
+  position:fixed;
+  top:0; left:0; right:0; bottom:0;
+  background:rgba(90,30,20,0.65);
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
+  gap:16px;
+  z-index:100;
+}
+#gameover-screen.show { display:flex; }
+#gameover-screen h1 {
+  color:#fff0e8;
+  font-size:28px;
+  letter-spacing:3px;
+  text-align:center;
+  line-height:1.4;
+  text-shadow:0 2px 8px rgba(0,0,0,0.3);
+  padding:0 20px;
+}
+#gameover-screen .final-time {
+  color:#f0d0c8;
+  font-size:15px;
+  letter-spacing:1px;
+}
+</style>
+</head>
+<body>
+
+<div class="game-wrapper">
+  <canvas id="board" width="300" height="600"></canvas>
+  <div class="side-panel">
+    <div class="title"><span>Open</span>Up</div>
+    <div class="block">
+      <div class="label">Игрок</div>
+      <div class="value small" id="player-name">Игрок 1</div>
+    </div>
+    <div class="block">
+      <div class="label">Очки</div>
+      <div class="value" id="score">0</div>
+    </div>
+    <div class="block">
+      <div class="label">Линии</div>
+      <div class="value" id="lines">0</div>
+    </div>
+    <div class="block">
+      <div class="label">Время</div>
+      <div class="value timer" id="timer">00:00</div>
+    </div>
+    <div class="block" style="margin-top:14px;">
+      <button id="restart-panel-btn">Заново</button>
+    </div>
+  </div>
+</div>
+
+<div id="gameover-screen">
+  <h1>Привет<br>от Виктории и Евгении</h1>
+  <div class="final-time" id="final-time"></div>
+  <button id="restart-btn">Заново</button>
+</div>
+
+<script>
+const COLS = 10;
+const ROWS = 20;
+const CELL = 30;
+
+const boardCanvas = document.getElementById('board');
+const ctx = boardCanvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const linesEl = document.getElementById('lines');
+const timerEl = document.getElementById('timer');
+const finalTimeEl = document.getElementById('final-time');
+const playerNameEl = document.getElementById('player-name');
+const gameoverScreen = document.getElementById('gameover-screen');
+const restartBtn = document.getElementById('restart-btn');
+const restartPanelBtn = document.getElementById('restart-panel-btn');
+
+const SHAPES = [
+  [[1,1,1,1]],
+  [[1,1],[1,1]],
+  [[0,1,0],[1,1,1]],
+  [[1,0,0],[1,1,1]],
+  [[0,0,1],[1,1,1]],
+  [[0,1,1],[1,1,0]],
+  [[1,1,0],[0,1,1]]
+];
+
+const COLORS = [
+  null,
+  '#3a8a6a',
+  '#c8983a',
+  '#6a4a8a',
+  '#9a5a2a',
+  '#3a6a8a',
+  '#5a8a4a',
+  '#8a3a3a'
+];
+
+let board, score, lines, piece, gameOver, dropCounter, lastTime;
+let timerSeconds, timerInterval;
+let welcomeMessageTimer = null;
+let welcomeMessageVisible = false;
+
+// --- Touch state for swipe + tap ---
+let touchStartX = 0;
+let touchStartY = 0;
+let touchStartTime = 0;
+const SWIPE_THRESHOLD = 20;
+const TAP_MAX_TIME = 250;
+const TAP_MAX_DIST = 15;
+
+function createBoard() {
+  board = Array.from({length:ROWS}, () => Array(COLS).fill(0));
+}
+
+function formatTime(seconds) {
+  const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+  const s = String(seconds % 60).padStart(2, '0');
+  return m + ':' + s;
+}
+
+function updateTimerDisplay() {
+  timerEl.textContent = formatTime(timerSeconds);
+}
+
+function startTimer() {
+  stopTimer();
+  timerSeconds = 0;
+  updateTimerDisplay();
+  timerInterval = setInterval(() => {
+    if (!gameOver) {
+      timerSeconds++;
+      updateTimerDisplay();
+    }
+  }, 1000);
+}
+
+function stopTimer() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+function randomPiece() {
+  const type = Math.floor(Math.random() * SHAPES.length) + 1;
+  const shape = SHAPES[type-1];
+  return {
+    shape,
+    type,
+    x: Math.floor((COLS - shape[0].length) / 2),
+    y: 0
+  };
+}
+
+function isValid(shape, x, y) {
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (shape[r][c]) {
+        const nx = x + c;
+        const ny = y + r;
+        if (nx < 0 || nx >= COLS || ny >= ROWS) return false;
+        if (ny < 0) continue;
+        if (board[ny][nx]) return false;
+      }
+    }
+  }
+  return true;
+}
+
+function rotateMatrix(matrix) {
+  const rows = matrix.length;
+  const cols = matrix[0].length;
+  const result = Array.from({length: cols}, () => Array(rows).fill(0));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      result[c][rows-1-r] = matrix[r][c];
+    }
+  }
+  return result;
+}
+
+function lockPiece() {
+  const {shape, type, x, y} = piece;
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (shape[r][c]) {
+        const py = y + r;
+        const px = x + c;
+        if (py < 0) { triggerGameOver(); return; }
+        board[py][px] = type;
+      }
+    }
+  }
+  clearLines();
+  spawnPiece();
+}
+
+function clearLines() {
+  let cleared = 0;
+  for (let r = ROWS-1; r >= 0; r--) {
+    if (board[r].every(cell => cell !== 0)) {
+      board.splice(r, 1);
+      board.unshift(Array(COLS).fill(0));
+      cleared++;
+      r++;
+    }
+  }
+  if (cleared > 0) {
+    lines += cleared;
+    score += cleared === 1 ? 100 : cleared === 2 ? 300 : cleared === 3 ? 500 : 800;
+    linesEl.textContent = lines;
+    scoreEl.textContent = score;
+  }
+}
+
+function spawnPiece() {
+  piece = randomPiece();
+  if (!isValid(piece.shape, piece.x, piece.y)) {
+    triggerGameOver();
+  }
+}
+
+function triggerGameOver() {
+  gameOver = true;
+  stopTimer();
+  finalTimeEl.textContent = 'Время: ' + formatTime(timerSeconds);
+  gameoverScreen.classList.add('show');
+}
+
+function resetGame() {
+  createBoard();
+  score = 0;
+  lines = 0;
+  gameOver = false;
+  dropCounter = 0;
+  lastTime = 0;
+  scoreEl.textContent = '0';
+  linesEl.textContent = '0';
+  gameoverScreen.classList.remove('show');
+  startTimer();
+  spawnPiece();
+  // show welcome message for 2.5 seconds
+  welcomeMessageVisible = false;
+  if (welcomeMessageTimer) clearTimeout(welcomeMessageTimer);
+  welcomeMessageTimer = setTimeout(() => {
+    welcomeMessageVisible = false;
+  }, 2500);
+  welcomeMessageVisible = true;
+}
+
+function moveLeft() {
+  if (gameOver) return;
+  if (isValid(piece.shape, piece.x-1, piece.y)) piece.x--;
+}
+
+function moveRight() {
+  if (gameOver) return;
+  if (isValid(piece.shape, piece.x+1, piece.y)) piece.x++;
+}
+
+function rotatePiece() {
+  if (gameOver) return;
+  const rotated = rotateMatrix(piece.shape);
+  if (isValid(rotated, piece.x, piece.y)) {
+    piece.shape = rotated;
+  }
+}
+
+function hardDrop() {
+  if (gameOver) return;
+  while (isValid(piece.shape, piece.x, piece.y+1)) piece.y++;
+  lockPiece();
+}
+
+// Draw thick white upward arrow with a dot at bottom, centered in cell
+function drawArrow(x, y) {
+  const cx = x * CELL + CELL / 2;
+  const cy = y * CELL + CELL / 2;
+  const s = CELL * 0.24;
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s * 0.6);
+  ctx.lineTo(cx, cy - s * 0.6);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s * 0.8);
+  ctx.lineTo(cx - s * 0.5, cy - s * 0.1);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s * 0.8);
+  ctx.lineTo(cx + s * 0.5, cy - s * 0.1);
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(cx, cy + s * 0.75, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCell(x, y, type) {
+  const px = x * CELL;
+  const py = y * CELL;
+  const color = COLORS[type];
+
+  ctx.fillStyle = color;
+  ctx.fillRect(px, py, CELL, CELL);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(px, py, CELL, 2);
+  ctx.fillRect(px, py, 2, CELL);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.fillRect(px, py+CELL-2, CELL, 2);
+  ctx.fillRect(px+CELL-2, py, 2, CELL);
+
+  drawArrow(x, y);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 300, 600);
+
+  ctx.strokeStyle = '#e0dcd8';
+  ctx.lineWidth = 0.5;
+  for (let i = 1; i < COLS; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i*CELL, 0);
+    ctx.lineTo(i*CELL, 600);
+    ctx.stroke();
+  }
+  for (let i = 1; i < ROWS; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, i*CELL);
+    ctx.lineTo(300, i*CELL);
+    ctx.stroke();
+  }
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (board[r][c]) {
+        drawCell(c, r, board[r][c]);
+      }
+    }
+  }
+
+  if (piece && !gameOver) {
+    const {shape, type, x, y} = piece;
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (shape[r][c]) {
+          drawCell(x + c, y + r, type);
+        }
+      }
+    }
+  }
+
+  ctx.save();
+  ctx.font = 'bold 42px "Segoe UI","Helvetica Neue",Arial,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(180,50,50,0.08)';
+  ctx.fillText('OpenUp', 150, 300);
+  ctx.restore();
+
+  if (welcomeMessageVisible) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(250,245,240,0.92)';
+    ctx.fillRect(10, 250, 280, 100);
+    ctx.strokeStyle = '#8a2a2a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10, 250, 280, 100);
+    ctx.font = 'bold 16px "Segoe UI","Helvetica Neue",Arial,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#5a1a1a';
+    ctx.fillText('Виктория и Евгения', 150, 285);
+    ctx.font = '14px "Segoe UI","Helvetica Neue",Arial,sans-serif';
+    ctx.fillText('желают вам удачи!', 150, 315);
+    ctx.restore();
+  }
+}
+
+function update(time = 0) {
+  if (gameOver) { draw(); return; }
+  const delta = time - lastTime;
+  lastTime = time;
+  dropCounter += delta;
+  const speed = Math.max(80, 500 - lines * 10);
+  if (dropCounter > speed) {
+    dropCounter = 0;
+    if (isValid(piece.shape, piece.x, piece.y+1)) {
+      piece.y++;
+    } else {
+      lockPiece();
+    }
+  }
+  draw();
+  requestAnimationFrame(update);
+}
+
+// --- Touch handling ---
+boardCanvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+  touchStartTime = Date.now();
+}, { passive: false });
+
+boardCanvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!touchStartX) return;
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - touchStartX;
+  const dy = touch.clientY - touchStartY;
+  const dt = Date.now() - touchStartTime;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  // Tap: short time, small distance -> rotate
+  if (dt < TAP_MAX_TIME && dist < TAP_MAX_DIST) {
+    rotatePiece();
+    draw();
+    touchStartX = 0;
+    return;
+  }
+
+  // Swipe left/right
+  if (dist > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+    if (dx > 0) {
+      moveRight();
+    } else {
+      moveLeft();
+    }
+    draw();
+  }
+
+  touchStartX = 0;
+}, { passive: false });
+
+boardCanvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+}, { passive: false });
+
+// Keyboard (kept for desktop compatibility)
+document.addEventListener('keydown', e => {
+  if (gameOver) return;
+  switch(e.key) {
+    case 'ArrowLeft':  e.preventDefault(); moveLeft();   break;
+    case 'ArrowRight': e.preventDefault(); moveRight();  break;
+    case 'ArrowUp':    e.preventDefault(); rotatePiece();break;
+    case 'ArrowDown':  e.preventDefault(); hardDrop();   break;
+  }
+  draw();
+});
+
+function restartGame() {
+  resetGame();
+  requestAnimationFrame(update);
+}
+
+restartBtn.addEventListener('click', restartGame);
+restartPanelBtn.addEventListener('click', restartGame);
+
+resetGame();
+requestAnimationFrame(update);
+</script>
+</body>
+</html>
